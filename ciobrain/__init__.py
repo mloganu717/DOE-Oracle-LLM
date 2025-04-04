@@ -7,10 +7,12 @@ and customer sections.
 """
 
 import os
-from flask import Flask, render_template
+from flask import Flask, render_template, request, jsonify
 from ciobrain.admin import admin_bp
 from ciobrain.customer import create_customer_blueprint 
 from ciobrain.mediator import Mediator
+import subprocess
+
 
 def create_app(test_config=None):
     """Initialize and configure the Flask app instance"""
@@ -24,10 +26,6 @@ def create_app(test_config=None):
     app.config.from_mapping(
         SECRET_KEY='dev', # Set your own
         DATABASE=os.path.join(app.instance_path, 'ciobrain.sqlite'),
-        UPLOADS=os.path.join(app.instance_path, 'obfuscation/01_uploads'),
-        WORKING=os.path.join(app.instance_path,'obfuscation/02_working'),
-        REVIEWED=os.path.join(app.instance_path,'obfuscation/03_reviewed'),
-        ALLOWED_EXTENSIONS={'.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'},
         KNOWLEDGE=os.path.join(app.instance_path, 'knowledge'),
         VECTOR_STORE=os.path.join(app.instance_path, 'knowledge/vector_store')
     )
@@ -40,9 +38,6 @@ def create_app(test_config=None):
         app.config.from_mapping(test_config)
 
     directories = [
-        app.config.get('UPLOADS'),
-        app.config.get('WORKING'),
-        app.config.get('REVIEWED'),
         app.config.get('KNOWLEDGE'),
         app.config.get('VECTOR_STORE')
     ]
@@ -70,4 +65,15 @@ def create_app(test_config=None):
 
     from . import db
     db.init_app(app)
+
+    @app.route('/generate', methods=['POST'])
+    def generate():
+        prompt = request.json.get('prompt')
+        command = f"mlx_lm.generate --model mlx-community/Llama-3.2-1B-Instruct-4bit --adapter-path /path/to/adapters --prompt '{prompt}' --max-tokens 100"
+        
+        # Run the command and capture the output
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        
+        return jsonify({'response': result.stdout})
+
     return app

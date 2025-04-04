@@ -1,21 +1,57 @@
 {% extends "shared_base.html" %}
 {% block title %}Customer Home{% endblock %}
 {% block content %}
-<h2 class="centered-title">CIO Brain</h2>
-<div class="customer-dashboard">
-    <div class="rag-toggle-container">
-        <label class="toggle-label" for="rag-toggle">Use RAG (Retrieval-Augmented Generation)</label>
-	<input type="checkbox" id="rag-toggle" />
+<h2 class="text-5xl font-bold text-center mb-8 text-white-500">CIO Brain</h2>
+<div class="max-w-4xl mx-auto p-6">
+    <!-- Toggle Switch Container -->
+    <div class="flex items-center justify-end mb-4 space-x-3">
+        <span class="text-sm font-medium text-gray-300">Retrieval - Augmented Generation (RAG)</span>
+        <!-- Toggle Switch -->
+        <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="rag-toggle" class="sr-only peer">
+            <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-800 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+        </label>
     </div>
-    <div id="terminal" class="terminal-display">
-        <div id="scroll-container">
+
+    <!-- Terminal Display -->
+    <div id="terminal" class="bg-gray-900 rounded-lg shadow-lg overflow-hidden">
+        <!-- Chat Container -->
+        <div id="scroll-container" class="h-[500px] overflow-y-auto p-4 space-y-4">
         </div>
-        <div class="prompt-line">
-            <span class="prompt-prefix">[~]</span>
-            <textarea autofocus id="prompt" rows="3"></textarea>
+        
+        <!-- Input Area -->
+        <div class="border-t border-gray-800 p-4">
+            <div class="flex items-center space-x-2">
+                <span class="text-green-500 font-mono">[~]</span>
+                <textarea 
+                    id="prompt" 
+                    rows="3" 
+                    class="flex-1 bg-gray-800 text-green-500 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-2 focus:ring-green-500 resize-none p-2"
+                    placeholder="Type your message here..."
+                ></textarea>
+            </div>
         </div>
     </div>
 </div>
+
+<!-- Add Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
 <script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
+
+<style>
+    /* Custom styles for messages */
+    .user {
+        @apply text-white bg-gray-800 rounded-lg p-3 mb-2;
+    }
+    .assistant {
+        @apply text-green-500 font-mono whitespace-pre-wrap p-3;
+    }
+    .error {
+        @apply text-red-500 bg-red-900/20 rounded-lg p-3;
+    }
+    .numbered-item {
+        @apply block py-1;
+    }
+</style>
 {% endblock %}
 

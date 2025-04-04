@@ -10,15 +10,17 @@ rag_manager = RAGManager()
 def home():
     """Document management page"""
     directories = documents_manager.get_directories()
-    return render_template('admin_documents.html', directories = directories)
+    return render_template('admin_documents.html', directories=directories)
 
 @documents_bp.route('documents/upload', methods=['POST'])
 def upload_document():
-    """document upload operation"""
+    """Document upload operation"""
     file = request.files.get('file')
+    is_research_paper = request.form.get('is_research_paper', 'false').lower() == 'true'
+    
     if file:
         try:
-            documents_manager.upload_document(file)
+            documents_manager.upload_document(file, is_research_paper=is_research_paper)
             flash("File uploaded successfully!", "success")
         except ValueError as e:
             flash(str(e), "error")
@@ -26,12 +28,14 @@ def upload_document():
         flash("No file selected!", "error")
     return redirect(url_for('admin.documents.home'))
 
-
-@documents_bp.route('documents/process_handbook', methods=['POST'])
-def process_handbook():
-    vector_db = rag_manager.process_handbook('Handbook-CIO.pdf')
+@documents_bp.route('documents/process', methods=['POST'])
+def process_documents():
+    """Process all research papers"""
+    vector_db = rag_manager.process_documents()
     if vector_db:
+        flash("Documents processed successfully!", "success")
         return redirect(url_for('admin.documents.home'))
     else:
-        return print("error")
+        flash("Error processing documents", "error")
+        return redirect(url_for('admin.documents.home'))
 

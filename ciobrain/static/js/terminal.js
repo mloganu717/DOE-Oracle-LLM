@@ -3,14 +3,33 @@ document.addEventListener("DOMContentLoaded", () => {
     const input = document.getElementById("prompt");
     const ragToggle = document.getElementById("rag-toggle");
 
+    // Function to format the message content
+    const formatMessage = (content) => {
+        // Split content into lines
+        const lines = content.split('\n');
+        return lines.map(line => {
+            line = line.trim();
+            if (line.match(/^\d+\./)) {
+                // If line starts with a number and period, wrap in a div
+                return `<div class="numbered-item">${line}</div>`;
+            }
+            return line;
+        }).join('\n');
+    };
+
     // Function to add a message to the terminal
     const addMessageToTerminal = (role, content) => {
         const message = document.createElement("div");
         message.className = role; // 'user' or 'assistant'
-        message.textContent = content;
+        
+        if (role === 'user') {
+            message.textContent = content;
+        } else {
+            // For assistant messages, preserve formatting
+            message.innerHTML = formatMessage(content);
+        }
+        
         scrollContainer.appendChild(message);
-
-        // Scroll to the bottom
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
         return message;
     };
@@ -18,49 +37,38 @@ document.addEventListener("DOMContentLoaded", () => {
     // Handle user input on Enter key
     input.addEventListener("keypress", async (event) => {
         if (event.key === "Enter") {
-            event.preventDefault(); // Prevent newline in the textarea
+            event.preventDefault();
             const prompt = input.value.trim();
-            if (!prompt) return; // Do nothing if input is empty
+            if (!prompt) return;
 
-            // Add user prompt to the terminal
             addMessageToTerminal("user", prompt);
-            input.value = ""; // Clear the input box
+            input.value = "";
 
-            // Add a loading indicator to show the assistant is "thinking"
             const loadingMessage = addMessageToTerminal("assistant", "Assistant is typing...");
 
             try {
-                // Send the prompt as a POST request
-                console.log("Sending prompt to server...");
                 const response = await fetch("/customer/prompt", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ prompt, use_rag: ragToggle.checked }),
                 });
 
-                if (!response.ok) {
-                    throw new Error("Server error");
-                }
+                if (!response.ok) throw new Error("Server error");
 
-                // Stream the server response
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder("utf-8");
                 
-                // Replace the loading indicator with an empty response area
                 const assistantMessage = addMessageToTerminal("assistant", "");
                 loadingMessage.remove();
 
+                let accumulatedText = "";
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
 
                     const chunk = decoder.decode(value, { stream: true });
-                    console.log(`Received chunk from server: ${chunk}`);
-                    
-                    // Append the new chunk to the assistant message
-                    assistantMessage.textContent += chunk;
-
-                    // Keep scrolling to the bottom
+                    accumulatedText += chunk;
+                    assistantMessage.innerHTML = formatMessage(accumulatedText);
                     scrollContainer.scrollTop = scrollContainer.scrollHeight;
                 }
             } catch (error) {
