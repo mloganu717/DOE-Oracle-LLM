@@ -1,4 +1,5 @@
 import logging
+from flask import request, Response
 
 class CustomerDashboard:
     """
@@ -13,6 +14,16 @@ class CustomerDashboard:
         """
         return self.chat_handler.generate_response_stream(prompt, use_rag=use_rag)
 
+    def generate(self):
+        """Generate streaming responses."""
+        data = request.get_json()
+        if not data or 'prompt' not in data:
+            return "Error: No prompt provided", 400
+
+        prompt = data['prompt']
+        use_rag = data.get('use_rag', False)
+        return self.chat_handler.generate_response_stream(prompt, use_rag=use_rag)
+
 class ChatHandler:
     def __init__(self, mediator):
         self.mediator = mediator
@@ -25,8 +36,11 @@ class ChatHandler:
         if not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
 
+        # Format the prompt to include RAG flag
+        formatted_prompt = f"{prompt}, Use RAG: {str(use_rag)}"
+
         # Append user prompt to chat history
-        self.chat_history.append({"role": "user", "content": prompt})
+        self.chat_history.append({"role": "user", "content": formatted_prompt})
 
         def generate():
             response_buffer = []
@@ -38,7 +52,7 @@ class ChatHandler:
             logging.info(f"Full history being sent to mediator: {full_history}")
 
             # Stream the response using the mediator's stream function
-            generator = self.mediator.stream(full_history, use_rag=use_rag)
+            generator = self.mediator.stream(full_history)
             current_line = ""
 
             for chunk in generator:

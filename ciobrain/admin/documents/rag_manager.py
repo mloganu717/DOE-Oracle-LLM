@@ -4,33 +4,49 @@ import logging
 import pdfplumber
 from flask import current_app
 from langchain.schema import Document
-from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
-from langchain_text_splitters.character import RecursiveCharacterTextSplitter
+from langchain_community.chat_models import ChatOllama
+from langchain_community.vectorstores import Chroma
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
 from langchain.prompts import PromptTemplate
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.prompts import ChatPromptTemplate
+from langchain.chains import ConversationalRetrievalChain
+from langchain_ollama import OllamaEmbeddings
 
 logging.basicConfig(level=logging.INFO)
 
 class RAGManager:
 
     def __init__(self):
-        # Get the absolute path to the instance/knowledge/research-papers directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        instance_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))), 'instance')
-        self.research_papers_dir = os.path.join(instance_dir, 'knowledge', 'research-papers')
+        self.app = None
+        self.research_papers_dir = None
         self.vector_store_path = None
-        os.makedirs(self.research_papers_dir, exist_ok=True)
-        logging.info(f"Research papers directory set to: {self.research_papers_dir}")
-        logging.info(f"Current directory contents: {os.listdir(self.research_papers_dir)}")
+        self.vector_db = None
+        self.llm = None
 
     def initialize(self, app):
-        """Initialize paths using the Flask app context"""
-        self.vector_store_path = app.config['VECTOR_STORE']
-        logging.info(f"Vector store path set to: {self.vector_store_path}")
+        """Initialize the RAG manager with the Flask app context."""
+        try:
+            self.app = app
+            self.research_papers_dir = os.path.join(app.instance_path, 'knowledge', 'research-papers')
+            self.vector_store_path = os.path.join(app.instance_path, 'knowledge', 'vector_store')
+            
+            # Initialize the LLM for RAG
+            self.llm = ChatOllama(
+                model="llama3",
+                temperature=0.7,
+                max_tokens=2048
+            )
+            
+            logging.info(f"RAG Manager initialized with research papers dir: {self.research_papers_dir}")
+            logging.info(f"Vector store path: {self.vector_store_path}")
+            return True
+        except Exception as e:
+            logging.error(f"Error initializing RAG Manager: {str(e)}")
+            return False
 
     def process_documents(self):
         """Process all research papers in the research_papers directory."""
@@ -38,14 +54,35 @@ class RAGManager:
             logging.error("RAGManager not properly initialized")
             return None
 
-        # Process research papers
-        document_chunks = self.process_research_papers()
-        if not document_chunks:
-            logging.error("No documents were processed successfully")
+        # Check if the research papers directory exists
+        if not os.path.exists(self.research_papers_dir):
+            logging.error(f"Research papers directory not found at {self.research_papers_dir}")
+            # Create the directory in case it's missing
+            try:
+                os.makedirs(self.research_papers_dir, exist_ok=True)
+                logging.info(f"Created research papers directory at {self.research_papers_dir}")
+            except Exception as e:
+                logging.error(f"Failed to create research papers directory: {str(e)}")
+            return None
+        
+        # Check if there are any PDF files in the directory
+        pdf_files = [f for f in os.listdir(self.research_papers_dir) if f.lower().endswith('.pdf')]
+        if not pdf_files:
+            logging.warning(f"No PDF files found in {self.research_papers_dir}")
             return None
 
-        vector_db = self.load_or_create_vector_db(document_chunks)
-        return vector_db
+        # Process the documents
+        try:
+            document_chunks = self.process_research_papers()
+            if not document_chunks:
+                logging.error("No documents were processed successfully")
+                return None
+
+            vector_db = self.load_or_create_vector_db(document_chunks)
+            return vector_db
+        except Exception as e:
+            logging.error(f"Error processing documents: {str(e)}")
+            return None
 
     def process_research_papers(self):
         """Process all research papers in the research_papers directory."""
@@ -167,60 +204,44 @@ class RAGManager:
         return retriever
 
     def create_chain(self, retriever, llm):
-        """Create the chain with preserved syntax and detailed progress updates."""
-        # Improved RAG prompt template
-        template = """You are an AI assistant helping with software testing research. 
-        Use the following context to answer the question. If you don't know the answer, say so.
-        Be specific and cite information from the research papers when possible.
+        """Creates a chain that combines the retriever and LLM."""
+        try:
+            # Create the prompt template
+            template = """You are an AI assistant specialized in combinatorial testing and fault detection. Use the following pieces of context to answer the question. If you don't know the answer based on the context, just say that you don't know, don't try to make up an answer.
 
-        Context:
-        {context}
+            Context: {context}
 
-        Question: {question}
+            Question: {question}
 
-        Answer: Let me help you with that based on the research papers."""
+            Answer: """
 
-        prompt = ChatPromptTemplate.from_template(template)
+            # Create the prompt
+            prompt = PromptTemplate(
+                template=template,
+                input_variables=["context", "question"]
+            )
 
-        def chain_generator(question):
-            try:
-                # Use the new `.invoke()` method to get relevant documents
-                retrieved_docs = retriever.invoke(question)
+            # Create the chain
+            chain = (
+                {"context": retriever, "question": RunnablePassthrough()}
+                | prompt
+                | llm
+                | StrOutputParser()
+            )
 
-                # Handle if no documents were found
-                if not retrieved_docs or len(retrieved_docs) == 0:
-                    yield "I couldn't find any relevant information in the research papers for this question."
-                    return
+            def process_response(query):
+                try:
+                    response = chain.invoke(query)
+                    return {"answer": response}
+                except Exception as e:
+                    logging.error(f"Error in chain processing: {str(e)}")
+                    return {"answer": f"Error processing response: {str(e)}"}
 
-                # Convert the retrieved documents into a single string context
-                context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-                logging.info(f"Retrieved {len(retrieved_docs)} documents.")
+            return process_response
 
-                # Create a dictionary with context and question to pass through the chain
-                input_dict = {"context": context, "question": question}
-
-                # Create the chain by connecting all the Runnables
-                chain = (
-                    RunnablePassthrough()  # Accept the input dictionary
-                    | prompt                # Use the prompt to format the response
-                    | llm                   # Pass to the LLM to generate the output
-                    | StrOutputParser()     # Parse the output into a readable string
-                )
-
-                # Invoke the chain with the correct dictionary format
-                response = chain.invoke(input_dict)
-                
-                # Split the response into sentences for better streaming
-                sentences = response.split('. ')
-                for sentence in sentences:
-                    if sentence.strip():
-                        yield sentence.strip() + '. '
-                
-            except Exception as e:
-                logging.error(f"Error in chain generation: {str(e)}")
-                yield f"Error: {str(e)}"
-
-        return chain_generator
+        except Exception as e:
+            logging.error(f"Error creating chain: {str(e)}")
+            return None
     
     def test_vector_db_loading(self):
         """Test if the vector database can be loaded successfully."""
@@ -270,4 +291,55 @@ class RAGManager:
 
             else:
                 logging.error(f"Vector database path not found at {vector_db_path}")
+
+    def create_rag_chain(self):
+        """Creates and returns a RAG chain using the vector database."""
+        try:
+            if not self.vector_db:
+                logging.error("Vector database not initialized")
+                return None
+
+            if not self.llm:
+                logging.error("LLM not initialized")
+                return None
+
+            # Create a retriever from the vector database
+            retriever = self.vector_db.as_retriever(
+                search_kwargs={"k": 4}
+            )
+            logging.info("Created retriever from vector database")
+
+            # Create the RAG chain using LangChain
+            from langchain.chains import ConversationalRetrievalChain
+            from langchain.prompts import PromptTemplate
+
+            # Define the prompt template for RAG
+            template = """You are an AI assistant specialized in combinatorial testing and fault detection. Use the following pieces of context to answer the question. If you don't know the answer based on the context, just say that you don't know, don't try to make up an answer.
+
+            Context: {context}
+
+            Question: {question}
+
+            Answer: """
+
+            PROMPT = PromptTemplate(
+                template=template,
+                input_variables=["context", "question"]
+            )
+
+            # Create the chain
+            chain = ConversationalRetrievalChain.from_llm(
+                llm=self.llm,
+                retriever=retriever,
+                combine_docs_chain_kwargs={"prompt": PROMPT},
+                return_source_documents=False,
+                verbose=True
+            )
+
+            logging.info("Created RAG chain successfully")
+            return chain
+
+        except Exception as e:
+            logging.error(f"Error creating RAG chain: {str(e)}")
+            return None
 

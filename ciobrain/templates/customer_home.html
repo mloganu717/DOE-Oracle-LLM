@@ -1,10 +1,10 @@
 {% extends "shared_base.html" %}
 {% block title %}Customer Home{% endblock %}
 {% block content %}
-<h2 class="text-5xl font-bold text-center mb-8 text-white-500">CIO Brain</h2>
-<div class="max-w-4xl mx-auto p-6">
+<h2 class="text-4xl font-bold text-center mb-6 text-white-500">CIO Brain</h2>
+<div class="max-w-4xl mx-auto p-4">
     <!-- Toggle Switch Container -->
-    <div class="flex items-center justify-end mb-4 space-x-3">
+    <div class="flex items-center justify-end mb-3 space-x-3">
         <span class="text-sm font-medium text-gray-300">Retrieval - Augmented Generation (RAG)</span>
         <!-- Toggle Switch -->
         <label class="relative inline-flex items-center cursor-pointer">
@@ -16,17 +16,17 @@
     <!-- Terminal Display -->
     <div id="terminal" class="bg-gray-900 rounded-lg shadow-lg overflow-hidden">
         <!-- Chat Container -->
-        <div id="scroll-container" class="h-[500px] overflow-y-auto p-4 space-y-4">
+        <div id="scroll-container" class="h-[500px] overflow-y-auto p-4 space-y-3">
         </div>
         
         <!-- Input Area -->
         <div class="border-t border-gray-800 p-4">
             <div class="flex items-center space-x-2">
-                <span class="text-green-500 font-mono">[~]</span>
+                <span class="text-green-500 font-mono text-base">[~]</span>
                 <textarea 
                     id="prompt" 
-                    rows="3" 
-                    class="flex-1 bg-gray-800 text-green-500 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-2 focus:ring-green-500 resize-none p-2"
+                    rows="2" 
+                    class="flex-1 bg-gray-800 text-green-500 rounded-lg border border-gray-700 focus:border-green-500 focus:ring-2 focus:ring-green-500 resize-none p-2 text-base"
                     placeholder="Type your message here..."
                 ></textarea>
             </div>
@@ -41,16 +41,16 @@
 <style>
     /* Custom styles for messages */
     .user {
-        @apply text-white bg-gray-800 rounded-lg p-3 mb-2;
+        @apply text-white bg-gray-800 rounded-lg p-3 mb-2 text-base;
     }
     .assistant {
-        @apply text-green-500 font-mono whitespace-pre-wrap p-3;
+        @apply text-green-500 font-mono whitespace-pre-wrap p-3 text-base;
     }
     .error {
         @apply text-red-500 bg-red-900/20 rounded-lg p-3;
     }
     .numbered-item {
-        @apply block py-1;
+        @apply block py-1.5;
     }
 </style>
 {% endblock %}

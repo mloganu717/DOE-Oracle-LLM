@@ -69,11 +69,23 @@ def create_app(test_config=None):
     @app.route('/generate', methods=['POST'])
     def generate():
         prompt = request.json.get('prompt')
-        command = f"mlx_lm.generate --model mlx-community/Llama-3.2-1B-Instruct-4bit --adapter-path /path/to/adapters --prompt '{prompt}' --max-tokens 100"
+        use_rag = request.json.get('use_rag', True)
         
-        # Run the command and capture the output
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        
-        return jsonify({'response': result.stdout})
+        if not prompt:
+            return jsonify({'error': 'No prompt provided'})
+            
+        # Use the mediator to generate responses
+        try:
+            response_chunks = list(mediator.stream(prompt, use_rag=use_rag))
+            full_response = " ".join(response_chunks)
+            
+            return jsonify({
+                'response': full_response,
+                'using_adapter': mediator.using_adapter,
+                'using_rag': use_rag
+            })
+        except Exception as e:
+            app.logger.error(f"Error generating response: {e}")
+            return jsonify({'error': f'Error generating response: {str(e)}'})
 
     return app
