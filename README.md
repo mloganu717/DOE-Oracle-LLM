@@ -44,3 +44,6 @@ flask --app ciobrain run --debug
 ```
 
 The app should be accessible at http://localhost:5000
+
+cd frontend
+npm run dev

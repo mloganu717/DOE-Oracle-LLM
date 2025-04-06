@@ -7,17 +7,19 @@ and customer sections.
 """
 
 import os
-from flask import Flask, render_template, request, jsonify
-from ciobrain.admin import admin_bp
-from ciobrain.customer import create_customer_blueprint 
+from flask import Flask, render_template, request, jsonify, redirect, url_for, Response, send_from_directory
+from flask_cors import CORS, cross_origin
 from ciobrain.mediator import Mediator
 import subprocess
+import logging
+from mlx_lm import load, generate
 
 
 def create_app(test_config=None):
     """Initialize and configure the Flask app instance"""
 
     app = Flask(__name__, instance_relative_config=True)
+    CORS(app)  # Enable CORS for all routes
 
     # Ensure the 'instance' directory is created
     os.makedirs(app.instance_path, exist_ok=True)
@@ -49,43 +51,75 @@ def create_app(test_config=None):
             except OSError as e:
                 app.logger.error("Error creating directory %s: %s", directory, e)
 
-    # Define homepage route
-    @app.route('/')
-    def home():
-        return render_template('index.html')
-    
     mediator = Mediator()
 
-    # Register Blueprints
-    app.register_blueprint(admin_bp, url_prefix='/admin')
-    app.register_blueprint(create_customer_blueprint(mediator))
-  
+    # API endpoint for prompt handling
+    @app.route('/prompt', methods=['POST', 'OPTIONS'])
+    @cross_origin()
+    def prompt():
+        if request.method == 'OPTIONS':
+            return Response('', 
+                status=200,
+                headers={
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type'
+                }
+            )
+            
+        try:
+            data = request.get_json()
+            if not data:
+                return Response("No data provided", status=400)
+
+            prompt = data.get('prompt', '').strip()
+            use_rag = data.get('use_rag', True)
+
+            if not prompt:
+                logging.warning("Received empty prompt")
+                return Response("Invalid prompt", status=400)
+
+            logging.info(f"Received prompt: {prompt}, Use RAG: {use_rag}")
+
+            # Convert the prompt into the format expected by the mediator
+            messages = [{'role': 'user', 'content': prompt}]
+
+            # Get the response generator from the mediator
+            response_generator = mediator.stream(messages, use_rag=use_rag)
+
+            # Return as plain text with the generator yielding properly encoded bytes
+            return Response(
+                response_generator,
+                content_type="text/plain",
+                headers={
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type'
+                }
+            )
+        except Exception as e:
+            logging.error(f"Error in /prompt route: {str(e)}")
+            return Response(f"Internal server error: {str(e)}", status=500, 
+                headers={
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type'
+                }
+            )
+
+    # Serve frontend static files in production
+    @app.route('/')
+    def serve_frontend():
+        return send_from_directory('../frontend/dist', 'index.html')
+
+    @app.route('/<path:path>')
+    def serve_static(path):
+        return send_from_directory('../frontend/dist', path)
+    
     with app.app_context():
         mediator.initialize_resources()
 
     from . import db
     db.init_app(app)
-
-    @app.route('/generate', methods=['POST'])
-    def generate():
-        prompt = request.json.get('prompt')
-        use_rag = request.json.get('use_rag', True)
-        
-        if not prompt:
-            return jsonify({'error': 'No prompt provided'})
-            
-        # Use the mediator to generate responses
-        try:
-            response_chunks = list(mediator.stream(prompt, use_rag=use_rag))
-            full_response = " ".join(response_chunks)
-            
-            return jsonify({
-                'response': full_response,
-                'using_adapter': mediator.using_adapter,
-                'using_rag': use_rag
-            })
-        except Exception as e:
-            app.logger.error(f"Error generating response: {e}")
-            return jsonify({'error': f'Error generating response: {str(e)}'})
 
     return app

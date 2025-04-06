@@ -1,14 +1,30 @@
 import os
+import sys
+import logging
+from typing import List, Dict, Any, Optional
+from flask import current_app
+import json
+
+from langchain.prompts import PromptTemplate
+from langchain.schema.runnable import RunnablePassthrough
+from langchain.schema.output_parser import StrOutputParser
 from langchain_ollama.chat_models import ChatOllama
 from ciobrain.admin.documents.rag_manager import RAGManager
-from flask import current_app
-import logging
 import time
 from mlx_lm import load, generate
 import re
 
 class Mediator:
+    """Mediator class for handling interactions between frontend and backend services."""
+    
     def __init__(self):
+        """Initialize Mediator instance."""
+        self.model = None
+        self.rag_manager = None
+        self.rag_chain = None
+        self.model_initialized = False
+        self.rag_initialized = False
+        
         # Initialize RAG with Ollama
         self.rag_llm = ChatOllama(
             model="llama3.2",
@@ -23,7 +39,6 @@ class Mediator:
         
         # Track adapter usage
         self.using_adapter = False
-        self.model = None
         self.tokenizer = None
         
         # Try to load the fine-tuned model
@@ -92,184 +107,235 @@ class Mediator:
         self.rag_manager = RAGManager()
         self.vector_db = None
         self.retriever = None
-        self.rag_chain = None
         self.initialized = False
 
     def initialize_resources(self):
-        """Initialize all required resources."""
+        """Initialize all necessary resources for the mediator"""
         try:
-            # Initialize RAG manager
-            self.rag_manager.initialize(current_app._get_current_object())
+            # Initialize the LLM model and embeddings
+            self.model_initialized = self._initialize_model()
             
-            # Process documents to create vector database
-            self.vector_db = self.rag_manager.process_documents()
-            if not self.vector_db:
-                logging.error("Failed to create vector database from research papers")
-                return False
+            # Initialize the RAG resources
+            self.rag_initialized = self._initialize_rag_resources()
             
-            # Create RAG chain
-            self.rag_chain = self.rag_manager.create_rag_chain()
+            # Log status
+            if self.model_initialized and self.rag_initialized:
+                logging.info("All resources initialized successfully")
+            elif self.model_initialized:
+                logging.info("Model initialized successfully, but RAG resources failed")
+            elif self.rag_initialized:
+                logging.info("RAG resources initialized successfully, but model failed")
+            else:
+                logging.error("Failed to initialize any resources")
             
-            self.initialized = True
-            logging.info("All resources initialized successfully")
-            return True
-
+            return self.model_initialized
         except Exception as e:
             logging.error(f"Error initializing resources: {str(e)}")
             return False
 
-    def stream(self, conversation, use_rag=True):
-        """Stream responses from the model."""
+    def _initialize_rag_resources(self):
+        """Initialize RAG-specific resources"""
         try:
-            # Extract the last message from the conversation
-            if isinstance(conversation, list) and conversation:
-                last_message = conversation[-1]
-                if isinstance(last_message, dict):
-                    prompt = last_message.get('content', '')
-                    # Check for RAG toggle in the message content
-                    if "Use RAG: False" in prompt:
-                        use_rag = False
-                        prompt = prompt.replace("Use RAG: False", "").strip()
-                    elif "Use RAG: True" in prompt:
-                        use_rag = True
-                        prompt = prompt.replace("Use RAG: True", "").strip()
-                else:
-                    prompt = str(last_message)
+            # Create RAG manager instance
+            from ciobrain.admin.documents.rag_manager import RAGManager
+            self.rag_manager = RAGManager()
+            
+            # Check if vector store exists and initialize it if needed
+            if not self.rag_manager.vector_store_exists():
+                logging.info("Vector store doesn't exist, creating it...")
+                self.rag_manager.create_vector_store()
             else:
-                prompt = str(conversation)
-
-            if not prompt:
-                yield "Error: No prompt provided"
-                return
-
-            if use_rag:
-                # Initialize RAG resources if needed
-                if not self.initialized:
-                    if not self.initialize_resources():
-                        yield "Error: Failed to initialize RAG resources. Please try again later."
-                        return
-
-                if not self.rag_chain:
-                    yield "Error: RAG chain not properly initialized"
-                    return
-
-                try:
-                    # Use RAG chain for response
-                    response = self.rag_chain(prompt)
-                    
-                    # Handle different response types
-                    if isinstance(response, dict):
-                        # Extract the answer from the dictionary response
-                        response_text = response.get('answer', '')
-                        if not response_text:
-                            response_text = str(response)
-                    else:
-                        response_text = str(response)
-                    
-                    if response_text:
-                        # Split response into sentences for better streaming
-                        sentences = response_text.split('. ')
-                        for sentence in sentences:
-                            if sentence.strip():
-                                yield sentence.strip() + '. '
-                    else:
-                        yield "Error: RAG chain returned empty response"
-                except Exception as e:
-                    logging.error(f"Error in RAG processing: {str(e)}")
-                    yield f"Error in RAG processing: {str(e)}"
-            else:
-                # Use direct MLX model response
-                if not self.model or not self.tokenizer:
-                    yield "Error: MLX model not properly initialized"
-                    return
-
-                try:
-                    # Format prompt based on whether we're using adapter or base model
-                    if self.using_adapter:
-                        system_prompt = "You are an AI assistant with expertise in software testing, particularly Dr. Wong's research at UT Dallas on combinatorial testing. Provide accurate, technical responses based on academic research."
-                        
-                        # Format using structure from training data
-                        messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
-                        ]
-                        
-                        formatted_prompt = self.tokenizer.apply_chat_template(
-                            messages,
-                            tokenize=False,
-                            add_generation_prompt=True
-                        )
-                        
-                        # Use smaller max_tokens for adapter model
-                        max_tokens = 150
-                        logging.info("Using adapter model for response generation")
-                        logging.info(f"Adapter prompt: {formatted_prompt[:100]}...")
-                        
-                        # Try generating with adapter
-                        adapter_response = generate(
-                            self.model,
-                            self.tokenizer,
-                            prompt=formatted_prompt,
-                            max_tokens=max_tokens
-                        )
-                        
-                        # If response seems corrupted, fall back to base model
-                        if "Journal of Music Health" in adapter_response or "Testosterone-Based Diet" in adapter_response:
-                            logging.warning("Adapter response contains incorrect information. May be corrupted.")
-                            logging.warning(f"Corrupt adapter response: {adapter_response[:100]}...")
-                            
-                            # Fall back to base model
-                            logging.info("Falling back to base model")
-                            formatted_prompt = f"Question: {prompt}\n\nAnswer:"
-                            max_tokens = 250
-                            
-                            response = generate(
-                                self.model,
-                                self.tokenizer,
-                                prompt=formatted_prompt,
-                                max_tokens=max_tokens
-                            )
-                        else:
-                            response = adapter_response
-                    else:
-                        # Simpler format for base model
-                        formatted_prompt = f"Question: {prompt}\n\nAnswer:"
-                        max_tokens = 250
-                        logging.info("Using base model for response generation")
-                        
-                        # Generate response
-                        response = generate(
-                            self.model,
-                            self.tokenizer,
-                            prompt=formatted_prompt,
-                            max_tokens=max_tokens
-                        )
-                    
-                    # Process response regardless of model type
-                    clean_response = response.strip()
-                    logging.info(f"Raw response: {clean_response[:100]}...")
-                    
-                    # Try to find start of actual response
-                    markers = ["Answer:", "<|assistant|>", "Assistant:"]
-                    for marker in markers:
-                        if marker in clean_response:
-                            parts = clean_response.split(marker, 1)
-                            if len(parts) > 1:
-                                clean_response = parts[1].strip()
-                                logging.info(f"Found marker: {marker}, extracted: {clean_response[:100]}...")
-                                break
-                    
-                    # Simple response check
-                    if clean_response and len(clean_response) > 10:
-                        yield clean_response
-                    else:
-                        yield "I apologize, but I couldn't generate a proper response."
-                            
-                except Exception as e:
-                    logging.error(f"Error in MLX processing: {str(e)}")
-                    logging.exception("MLX processing exception details:")
-                    yield f"Error in MLX processing: {str(e)}"
-
+                logging.info("Vector store exists, loading it...")
+                self.rag_manager.load_vector_store()
+            
+            # Initialize RAG chain
+            self.rag_chain = self.rag_manager.get_rag_chain()
+            
+            if self.rag_chain is None:
+                logging.error("Failed to initialize RAG chain")
+                return False
+            
+            logging.info("RAG resources initialized successfully")
+            return True
         except Exception as e:
-            logging.error(f"Error in stream: {str(e)}")
-            yield f"Error: {str(e)}"
+            logging.error(f"Error initializing RAG resources: {str(e)}")
+            return False
+
+    def stream(self, messages, use_rag=False):
+        """Stream a response to the given prompt."""
+        try:
+            # Check if RAG is explicitly enabled
+            if use_rag:
+                logging.info("Using RAG for response generation")
+                
+                # Extract the query from the messages
+                try:
+                    # Handle different message formats
+                    if isinstance(messages, list):
+                        if messages and isinstance(messages[-1], dict) and 'content' in messages[-1]:
+                            query_str = messages[-1]['content']
+                        else:
+                            query_str = str(messages[-1])
+                    elif isinstance(messages, dict) and 'content' in messages:
+                        query_str = messages['content']
+                    elif isinstance(messages, str):
+                        query_str = messages
+                    else:
+                        query_str = str(messages)
+                    
+                    logging.info(f"Extracted query string for RAG: '{query_str}'")
+                    
+                    # Initialize RAG resources if not already done
+                    if not hasattr(self, 'rag_manager') or self.rag_manager is None:
+                        logging.info("Initializing RAG resources...")
+                        try:
+                            from ciobrain.admin.documents.rag_manager import RAGManager
+                            self.rag_manager = RAGManager()
+                        except Exception as e:
+                            logging.error(f"Error initializing RAG resources: {str(e)}")
+                            yield "I couldn't access the research papers database at this moment. Let me answer based on general knowledge instead.\n\n"
+                            use_rag = False
+                    
+                    # If RAG is still enabled, use it
+                    if use_rag:
+                        try:
+                            # Process the query directly using the RAGManager
+                            logging.info(f"Processing query using RAGManager: '{query_str}'")
+                            response = self.rag_manager.process_query(query_str)
+                            
+                            # Process the response
+                            if response:
+                                logging.info(f"RAG response received: {response[:100]}...")
+                                
+                                # Stream the response sentence by sentence
+                                import re
+                                sentences = re.split(r'(?<=[.!?])\s+', response)
+                                for sentence in sentences:
+                                    if sentence.strip():
+                                        yield sentence + " "
+                                return
+                            else:
+                                raise ValueError("Empty response from RAG chain")
+                                
+                        except Exception as e:
+                            logging.error(f"Error using RAG chain: {str(e)}")
+                            yield "I encountered an issue retrieving information from the research papers. Let me answer based on my general knowledge instead.\n\n"
+                            use_rag = False
+                except Exception as e:
+                    logging.error(f"Error extracting query or initializing RAG: {str(e)}")
+                    yield "I encountered a technical issue processing your request. Let me answer based on my general knowledge instead.\n\n"
+                    use_rag = False
+            
+            # Fall back to the base model if not using RAG or if RAG failed
+            logging.info("Using adapter model for response generation")
+            
+            # Extract the last message content if it's a list of messages
+            if isinstance(messages, list) and len(messages) > 0:
+                prompt = messages[-1]['content']
+            else:
+                prompt = messages
+                
+            # Load system prompt
+            system_prompt = self._load_system_prompt()
+            
+            # Format prompt with system and user messages
+            adapter_prompt = (
+                "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
+                f"{system_prompt}\n"
+                "<|start_header_id|>user<|end_header_id|>\n"
+                f"{prompt}\n"
+                "<|start_header_id|>assistant<|end_header_id|>\n"
+            )
+            
+            logging.info(f"Adapter prompt: {adapter_prompt[:100]}...")
+            
+            # Generate response
+            response = generate(
+                self.model,
+                self.tokenizer,
+                prompt=adapter_prompt,
+                max_tokens=2048
+            )
+            
+            # Clean up response if needed
+            if response:
+                logging.info(f"Raw response: {response[:100]}...")
+                yield response
+            else:
+                yield "No response generated."
+                
+        except Exception as e:
+            logging.error(f"Error in stream method: {str(e)}")
+            yield f"I encountered a technical issue processing your request. Please try again with a simpler question or without using the research papers database."
+
+    def _load_system_prompt(self):
+        """Load the system prompt for the assistant"""
+        system_prompt = """
+Cutting Knowledge Date: December 2023
+The AI assistant is an expert in Dr. Wong's research on combinatorial testing at UT Dallas.
+It provides accurate technical information about software testing techniques and applies
+combinatorial testing concepts to help solve testing problems.
+
+Key areas of expertise:
+- Combinatorial testing theory and applications
+- Software testing methodologies
+- Test case generation and optimization
+- Fault detection techniques
+- Industrial applications of combinatorial testing
+
+The assistant is helpful, clear, accurate, and provides responses based on academic
+research in the field of software testing.
+"""
+        return system_prompt.strip()
+
+    def _initialize_model(self):
+        """Initialize the MLX model and tokenizer"""
+        try:
+            logging.info("Attempting to load MLX model")
+            
+            # Set up model paths
+            adapter_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fine_tuning", "adapters")
+            adapter_files = []
+            
+            if os.path.exists(adapter_path):
+                adapter_files = os.listdir(adapter_path)
+                logging.info(f"Found adapter files: {adapter_files}")
+            else:
+                logging.error(f"Adapter path not found: {adapter_path}")
+                return False
+            
+            try:
+                # Import here to avoid circular imports
+                from mlx_lm import load, generate
+                
+                # Initialize model
+                self.model, self.tokenizer = load(
+                    self.mlx_model_name,
+                    adapter_path=adapter_path
+                )
+                
+                # Test the model with a simple prompt
+                test_prompt = "What is combinatorial testing?"
+                adapter_prompt = (
+                    "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
+                    f"{self._load_system_prompt()}\n"
+                    "<|start_header_id|>user<|end_header_id|>\n"
+                    f"{test_prompt}\n"
+                    "<|start_header_id|>assistant<|end_header_id|>\n"
+                )
+                test_response = generate(
+                    self.model,
+                    self.tokenizer,
+                    prompt=adapter_prompt,
+                    max_tokens=2048
+                )
+                logging.info(f"Test response: {test_response[:100]}...")
+                
+                logging.info("Successfully loaded MLX model with adapter")
+                return True
+            except Exception as e:
+                logging.error(f"Error loading MLX model: {str(e)}")
+                return False
+        except Exception as e:
+            logging.error(f"Error in model initialization: {str(e)}")
+            return False
