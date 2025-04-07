@@ -126,11 +126,11 @@ const ChatInterface: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[30rem] max-h-[40rem] bg-white rounded-lg shadow-lg overflow-hidden">
       {/* Chat header with RAG toggle */}
-      <div className="px-4 py-3 border-b border-gray-200 bg-white shadow-sm z-10">
+      <div className="px-4 sm:px-6 py-3 border-b border-gray-200 bg-white shadow-sm z-10">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium text-gray-900">Chat with Dr. Wong's Research</h2>
+          <h2 className="text-lg font-medium text-gray-900">Chat with DOE</h2>
           <div className="flex items-center">
             <span className="text-sm text-gray-600 mr-2">
               {useRAG ? 'Using Research Papers' : 'General Knowledge'}
@@ -150,7 +150,7 @@ const ChatInterface: React.FC = () => {
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50 min-h-0">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="bg-blue-100 p-6 rounded-full mb-4">
@@ -158,7 +158,7 @@ const ChatInterface: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
               </svg>
             </div>
-            <h3 className="text-xl font-medium text-gray-900">Welcome to CIO-Brain</h3>
+            <h3 className="text-xl font-medium text-gray-900">Welcome to DOE</h3>
             <p className="mt-2 text-gray-600 max-w-md">
               Ask questions about Dr. Wong's research on combinatorial testing and software testing methodologies.
             </p>
@@ -208,8 +208,8 @@ const ChatInterface: React.FC = () => {
       )}
 
       {/* Input area */}
-      <div className="border-t border-gray-200 bg-white p-4">
-        <form onSubmit={handleSubmit} className="flex items-end">
+      <div className="border-t border-gray-200 bg-white p-4 sm:p-6">
+        <form onSubmit={handleSubmit} className="flex items-end max-w-3xl mx-auto">
           <div className="relative flex-grow">
             <textarea
               ref={inputRef}
@@ -222,7 +222,7 @@ const ChatInterface: React.FC = () => {
                 }
               }}
               placeholder="Type your message..."
-              className="w-full border-0 focus:ring-0 focus:outline-none bg-gray-50 rounded-lg p-3 pr-16 resize-none overflow-hidden"
+              className="w-full border-0 focus:ring-0 focus:outline-none bg-white rounded-lg p-3 pr-16 resize-none overflow-hidden text-gray-900 placeholder-gray-500"
               style={{ minHeight: '48px', maxHeight: '120px' }}
               disabled={isLoading}
               rows={1}

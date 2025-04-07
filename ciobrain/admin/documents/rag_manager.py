@@ -54,7 +54,7 @@ class RAGManager:
             raise
 
     def process_documents(self) -> List[Document]:
-        """Process all PDF documents in the specified directory."""
+        """Process all documents in the PDF directory."""
         documents = []
         try:
             # Create directory if it doesn't exist
@@ -90,13 +90,18 @@ class RAGManager:
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
         """Split documents into smaller chunks."""
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len,
-            is_separator_regex=False,
-        )
-        return text_splitter.split_documents(documents)
+        if not documents:
+            return []
+            
+        try:
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200
+            )
+            return text_splitter.split_documents(documents)
+        except Exception as e:
+            logging.error(f"Error splitting documents: {str(e)}")
+            return []
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extract text from a PDF file."""
@@ -450,7 +455,7 @@ class RAGManager:
 
         # Process the documents
         try:
-            document_chunks = self.process_research_papers()
+            document_chunks = self.process_documents()
             if not document_chunks:
                 logging.error("No documents were processed successfully")
                 return None
@@ -515,7 +520,7 @@ class RAGManager:
 
         except Exception as e:
             logging.error(f"Error during vector database creation: {str(e)}")
-            return None
+            return None       
 
     def _clean_directory(self, dir_path):
         """Helper function to delete all files and subdirectories inside a given directory"""

@@ -51,7 +51,25 @@ def create_app(test_config=None):
             except OSError as e:
                 app.logger.error("Error creating directory %s: %s", directory, e)
 
-    mediator = Mediator()
+    # Initialize mediator safely with error handling
+    try:
+        from ciobrain.mediator import Mediator
+        mediator = Mediator()
+    except Exception as e:
+        app.logger.error(f"Error initializing mediator: {str(e)}")
+        # Create a minimal version of Mediator that just returns fallback responses
+        from ciobrain.mediator import Mediator
+        mediator = Mediator()
+        # Monkey patch the mediator's stream method to prevent crashes
+        original_stream = mediator.stream
+        def safe_stream(messages, use_rag=False):
+            try:
+                for response in original_stream(messages, use_rag):
+                    yield response
+            except Exception as e:
+                app.logger.error(f"Error in stream: {str(e)}")
+                yield "I apologize, but I'm experiencing technical difficulties. Please try again later."
+        mediator.stream = safe_stream
 
     # API endpoint for prompt handling
     @app.route('/prompt', methods=['POST', 'OPTIONS'])
@@ -117,9 +135,8 @@ def create_app(test_config=None):
         return send_from_directory('../frontend/dist', path)
     
     with app.app_context():
-        mediator.initialize_resources()
-
-    from . import db
-    db.init_app(app)
+        # Initialize database
+        from . import db
+        db.init_app(app)
 
     return app

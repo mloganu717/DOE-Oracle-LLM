@@ -1,8 +1,8 @@
-# CIO-Brain RAG System Documentation
+# DOE RAG System Documentation
 
 ## Overview
 
-CIO-Brain features a Retrieval-Augmented Generation (RAG) system that enhances the AI's responses by retrieving and incorporating information from Dr. Wong's research papers. This system combines both keyword search and semantic search approaches to provide comprehensive and accurate information.
+DOE features a Retrieval-Augmented Generation (RAG) system that enhances the AI's responses by retrieving and incorporating information from Dr. Wong's research papers. This system combines both keyword search and semantic search techniques to provide comprehensive and accurate information.
 
 ## How It Works
 
